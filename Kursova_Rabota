@@ -1,0 +1,164 @@
+# pi_methods.exs
+defmodule PiMethods do
+  @pi :math.pi()
+
+  # ---------------------------
+  # Helpers
+  # ---------------------------
+  defp abs(x) when x < 0, do: -x
+  defp abs(x), do: x
+
+  defp stop?(approx, eps), do: abs(approx - @pi) < eps
+
+  defp time_us(fun) do
+    {us, result} = :timer.tc(fun)
+    {us, result}
+  end
+
+  # ============================================================
+  # A) Gregory–Leibniz
+  # pi = 4 * sum_{k=0..inf} (-1)^k / (2k+1)
+  # ============================================================
+
+  # Recursive (tail recursion with accumulator)
+  def leibniz_rec(eps), do: leibniz_rec_loop(0, 0.0, 1.0, eps)
+
+  defp leibniz_rec_loop(k, acc, sign, eps) do
+    acc2 = acc + sign / (2 * k + 1)
+    approx = 4.0 * acc2
+
+    if stop?(approx, eps) and k > 0 do
+      %{pi: approx, iterations: k + 1, recursion_depth: k + 1}
+    else
+      leibniz_rec_loop(k + 1, acc2, -sign, eps)
+    end
+  end
+
+  # Iterative (explicit "cycle" via reduce_while)
+  def leibniz_iter(eps) do
+    Stream.iterate(0, &(&1 + 1))
+    |> Enum.reduce_while({0.0, 1.0}, fn k, {acc, sign} ->
+      acc2 = acc + sign / (2 * k + 1)
+      approx = 4.0 * acc2
+
+      if stop?(approx, eps) and k > 0 do
+        {:halt, %{pi: approx, iterations: k + 1, recursion_depth: 0}}
+      else
+        {:cont, {acc2, -sign}}
+      end
+    end)
+  end
+
+  # ============================================================
+  # B) Nilakantha
+  # pi = 3 + 4 * sum_{k=1..inf} (-1)^(k+1) / ((2k)(2k+1)(2k+2))
+  # ============================================================
+
+  # Recursive (tail recursion)
+  def nilakantha_rec(eps), do: nilakantha_rec_loop(1, 3.0, 1.0, eps)
+
+  defp nilakantha_rec_loop(k, pi_acc, sign, eps) do
+    denom = (2 * k) * (2 * k + 1) * (2 * k + 2)
+    term = 4.0 / denom
+    pi2 = pi_acc + sign * term
+
+    if stop?(pi2, eps) do
+      %{pi: pi2, iterations: k, recursion_depth: k}
+    else
+      nilakantha_rec_loop(k + 1, pi2, -sign, eps)
+    end
+  end
+
+  # Iterative (reduce_while)
+  def nilakantha_iter(eps) do
+    Stream.iterate(1, &(&1 + 1))
+    |> Enum.reduce_while({3.0, 1.0}, fn k, {pi_acc, sign} ->
+      denom = (2 * k) * (2 * k + 1) * (2 * k + 2)
+      term = 4.0 / denom
+      pi2 = pi_acc + sign * term
+
+      if stop?(pi2, eps) do
+        {:halt, %{pi: pi2, iterations: k, recursion_depth: 0}}
+      else
+        {:cont, {pi2, -sign}}
+      end
+    end)
+  end
+
+  # ============================================================
+  # C) Gauss–Legendre (AGM)
+  # ============================================================
+
+  def gauss_legendre_rec(eps) do
+    a0 = 1.0
+    b0 = 1.0 / :math.sqrt(2.0)
+    t0 = 0.25
+    p0 = 1.0
+    gauss_legendre_rec_loop(0, a0, b0, t0, p0, eps)
+  end
+
+  defp gauss_legendre_rec_loop(n, a, b, t, p, eps) do
+    approx = :math.pow(a + b, 2) / (4.0 * t)
+
+    if stop?(approx, eps) and n > 0 do
+      %{pi: approx, iterations: n, recursion_depth: n}
+    else
+      a_next = (a + b) / 2.0
+      b_next = :math.sqrt(a * b)
+      t_next = t - p * :math.pow(a - a_next, 2)
+      p_next = 2.0 * p
+      gauss_legendre_rec_loop(n + 1, a_next, b_next, t_next, p_next, eps)
+    end
+  end
+
+  def gauss_legendre_iter(eps) do
+    a0 = 1.0
+    b0 = 1.0 / :math.sqrt(2.0)
+    t0 = 0.25
+    p0 = 1.0
+
+    Stream.iterate(0, &(&1 + 1))
+    |> Enum.reduce_while({a0, b0, t0, p0}, fn n, {a, b, t, p} ->
+      approx = :math.pow(a + b, 2) / (4.0 * t)
+
+      if stop?(approx, eps) and n > 0 do
+        {:halt, %{pi: approx, iterations: n, recursion_depth: 0}}
+      else
+        a_next = (a + b) / 2.0
+        b_next = :math.sqrt(a * b)
+        t_next = t - p * :math.pow(a - a_next, 2)
+        p_next = 2.0 * p
+        {:cont, {a_next, b_next, t_next, p_next}}
+      end
+    end)
+  end
+
+  # ============================================================
+  # Experiment runner
+  # ============================================================
+
+  def run(eps_list \\ [1.0e-3, 1.0e-6, 1.0e-9]) do
+    methods = [
+      {"Leibniz", &leibniz_rec/1, &leibniz_iter/1},
+      {"Nilakantha", &nilakantha_rec/1, &nilakantha_iter/1},
+      {"Gauss-Legendre", &gauss_legendre_rec/1, &gauss_legendre_iter/1}
+    ]
+
+    Enum.each(eps_list, fn eps ->
+      IO.puts("\n==============================")
+      IO.puts("EPS = #{eps}")
+      IO.puts("==============================")
+
+      Enum.each(methods, fn {name, rec_fun, iter_fun} ->
+        {us_r, r} = time_us(fn -> rec_fun.(eps) end)
+        {us_i, i} = time_us(fn -> iter_fun.(eps) end)
+
+        IO.puts("\n--- #{name} ---")
+        IO.puts("Recursive: pi=#{r.pi}  iters=#{r.iterations}  depth=#{r.recursion_depth}  time_us=#{us_r}")
+        IO.puts("Iterative: pi=#{i.pi}  iters=#{i.iterations}  depth=#{i.recursion_depth}  time_us=#{us_i}")
+      end)
+    end)
+  end
+end
+
+PiMethods.run()
