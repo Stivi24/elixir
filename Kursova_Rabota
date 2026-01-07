@@ -5,10 +5,10 @@ defmodule PiMethods do
   # ---------------------------
   # Helpers
   # ---------------------------
-  defp abs(x) when x < 0, do: -x
-  defp abs(x), do: x
+  defp fabs(x) when x < 0, do: -x
+  defp fabs(x), do: x
 
-  defp stop?(approx, eps), do: abs(approx - @pi) < eps
+  defp stop?(approx, eps), do: fabs(approx - @pi) < eps
 
   defp time_us(fun) do
     {us, result} = :timer.tc(fun)
